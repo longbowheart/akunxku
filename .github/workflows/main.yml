@@ -1,7 +1,7 @@
 name: Robust Natural Bot
 on:
   schedule:
-    - cron: '0 0,3,6,9,12,15,18,21 * * *' # Tetap cek setiap 3 jam
+    - cron: '0 0,3,6,9,12,15,18,21 * * *'
   workflow_dispatch:
 
 jobs:
@@ -11,13 +11,16 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - name: Install
+          
+      - name: Install Dependencies
         run: pip install requests requests_oauthlib
-      - name: Execute
-        continue-on-error: true # Sangat Penting: Jika gagal, workflow tidak merah/berhenti
+        
+      - name: Execute Script
+        continue-on-error: true
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
@@ -26,10 +29,16 @@ jobs:
           MY_USER_ID: ${{ secrets.MY_USER_ID }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python natural_bot.py
+        
       - name: Commit Reports
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add activity.txt status.txt
-          git commit -m "Update logs [skip ci]" || echo "No changes"
-          git push
+          # Logika pengecekan file agar tidak error 128
+          if [ -f activity.txt ] && [ -f status.txt ]; then
+            git add activity.txt status.txt
+            git commit -m "Overwrite logs [skip ci]" || echo "No changes to commit"
+            git push
+          else
+            echo "Files not found, skipping commit."
+          fi
