@@ -11,7 +11,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      
+        with:
+          fetch-depth: 0 # Mengambil seluruh histori agar git tidak bingung
+
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
@@ -30,15 +32,15 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python natural_bot.py
         
-      - name: Commit Reports
+      - name: Force Push Reports
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          # Logika pengecekan file agar tidak error 128
           if [ -f activity.txt ] && [ -f status.txt ]; then
             git add activity.txt status.txt
             git commit -m "Overwrite logs [skip ci]" || echo "No changes to commit"
-            git push
+            # Menggunakan force push agar tidak ditolak (rejected)
+            git push origin main --force
           else
             echo "Files not found, skipping commit."
           fi
