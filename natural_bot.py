@@ -1,5 +1,7 @@
 import os
 import requests
+import random
+from datetime import datetime
 from requests_oauthlib import OAuth1
 
 # Kredensial
@@ -9,45 +11,52 @@ auth = OAuth1(
     os.environ.get("X_ACCESS_TOKEN"),
     os.environ.get("X_ACCESS_SECRET")
 )
+MY_ID = os.environ.get("MY_USER_ID")
 
-def check_account_health():
-    print("🔍 --- X ACCOUNT HEALTH CHECK ---")
-    
-    # 1. Cek Identitas & Status Akun
-    url_me = "https://api.twitter.com/2/users/me?user.fields=created_at,public_metrics"
-    res_me = requests.get(url_me, auth=auth)
-    
-    if res_me.status_code == 200:
-        data = res_me.json().get("data", {})
-        print(f"✅ Akun Aktif: @{data.get('username')}")
-        print(f"📅 Dibuat: {data.get('created_at')}")
-        print(f"📊 Followers: {data['public_metrics']['followers_count']}")
-        
-        # 2. Cek Limit Tweet (v2)
-        # API Free tidak punya endpoint khusus cek sisa, 
-        # tapi kita bisa tes dengan satu tarikan data kecil
-        url_limit = "https://api.twitter.com/2/tweets/search/recent?query=from:TwitterDev"
-        res_limit = requests.get(url_limit, auth=auth)
-        
-        # Lihat Header untuk sisa Limit
-        remaining = res_limit.headers.get('x-rate-limit-remaining')
-        reset_time = res_limit.headers.get('x-rate-limit-reset')
-        
-        print(f"\n📈 INFO LIMIT SEARCH:")
-        print(f"Sisa Kuota Jam Ini: {remaining}")
-        if reset_time:
-            from datetime import datetime
-            reset_dt = datetime.fromtimestamp(int(reset_time))
-            print(f"Reset Pada: {reset_dt}")
-            
-    elif res_me.status_code == 401:
-        print("❌ STATUS 401: Unauthorized. Kunci ditolak/expired.")
-    elif res_me.status_code == 403:
-        print("❌ STATUS 403: Forbidden. Akun mungkin ter-suspend atau App tidak punya izin Write.")
-    else:
-        print(f"❓ STATUS {res_me.status_code}: {res_me.text}")
+def get_remaining_limit():
+    """Mengecek apakah kita masih punya sisa nafas jam ini"""
+    try:
+        url = "https://api.twitter.com/2/users/me"
+        res = requests.get(url, auth=auth)
+        # Mengambil info limit dari header jika tersedia
+        return res.headers.get('x-rate-limit-remaining', "Unknown")
+    except: return "0"
+
+def perform_follow_back():
+    """Follow back adalah interaksi paling aman dan hemat kuota"""
+    try:
+        url = f"https://api.twitter.com/2/users/{MY_ID}/followers"
+        res = requests.get(url, auth=auth)
+        if res.status_code == 200:
+            followers = res.json().get("data", [])
+            for f in followers[:2]: # Cukup 2 orang tiap jalan
+                requests.post(f"https://api.twitter.com/2/users/{MY_ID}/following", 
+                              auth=auth, json={"target_user_id": f['id']})
+            return f"Checked {len(followers)} followers"
+    except: return "Follow back idle"
 
 if __name__ == "__main__":
-    check_account_health()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    print(f"--- Session {now} ---")
+    
+    limit = get_remaining_limit()
+    print(f"Current Limit Hint: {limit}")
+
+    # 1. Lakukan aksi yang paling penting: Follow Back
+    fb_status = perform_follow_back()
+    
+    # 2. Posting Tweet hanya jika angka random beruntung (Hanya 30% peluang)
+    # Ini untuk menghemat jatah 500 tweet sebulan
+    action_status = "Skipped to save quota"
+    if random.random() < 0.3:
+        tweet_text = f"Building in silence. {random.choice(['🚀', '🔥', '📈'])} #{random.randint(100,999)}"
+        res = requests.post("https://api.twitter.com/2/tweets", auth=auth, json={"text": tweet_text})
+        action_status = f"Tweeted (Status: {res.status_code})"
+
+    # Overwrite Laporan
+    with open("activity.txt", "w") as f:
+        f.write(f"Time: {now}\nLimit: {limit}\nFollback: {fb_status}\nAction: {action_status}")
+    
+    print(f"Summary: {fb_status} | {action_status}")
 
 # ompapaznoob
