@@ -1,94 +1,67 @@
 import os
 import requests
-import random
-import time
-from datetime import datetime
 from requests_oauthlib import OAuth1
 
-# Kredensial
-X_KEYS = {
+# Ambil kredensial dari Secrets
+keys = {
     "api_key": os.environ.get("X_API_KEY"),
     "api_secret": os.environ.get("X_API_SECRET"),
     "access_token": os.environ.get("X_ACCESS_TOKEN"),
     "access_secret": os.environ.get("X_ACCESS_SECRET"),
     "my_id": os.environ.get("MY_USER_ID")
 }
-NTFY_URL = f"https://ntfy.sh/{os.environ.get('NTFY_TOPIC')}"
 
-def notify(msg):
-    try: requests.post(NTFY_URL, data=msg.encode('utf-8'), timeout=10)
-    except: print("Gagal mengirim notifikasi ntfy")
+def notify_ntfy(msg):
+    topic = os.environ.get("NTFY_TOPIC")
+    if topic:
+        try: requests.post(f"https://ntfy.sh/{topic}", data=msg.encode('utf-8'))
+        except: pass
 
-def get_auth():
-    return OAuth1(X_KEYS["api_key"], X_KEYS["api_secret"], 
-                  X_KEYS["access_token"], X_KEYS["access_secret"])
-
-def create_reports(status_msg, ga_msg, error_log="None"):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open("activity.txt", "w") as f:
-        f.write(f"Last Activity: {now}\nGA Status: {ga_msg}\nError Log: {error_log}")
-    with open("status.txt", "w") as f:
-        f.write(f"Timestamp: {now}\nLast Tweet: {status_msg}")
-
-def hunt_early_ga():
-    try:
-        queries = ["FCFS giveaway", "first 100 follow", "early bird giveaway"]
-        q = random.choice(queries)
-        url = f"https://api.twitter.com/2/tweets/search/recent?query={q} -is:retweet&expansions=author_id&user.fields=public_metrics"
-        res = requests.get(url, auth=get_auth(), timeout=15)
+def run_diagnostic():
+    auth = OAuth1(keys["api_key"], keys["api_secret"], 
+                  keys["access_token"], keys["access_secret"])
+    
+    results = ["🔍 --- X API DIAGNOSTIC REPORT ---"]
+    
+    # TEST 1: Kredensial Dasar (OAuth 1.0a)
+    print("Testing Step 1: Authentication...")
+    url_me = "https://api.twitter.com/2/users/me"
+    res_me = requests.get(url_me, auth=auth)
+    
+    if res_me.status_code == 200:
+        results.append("✅ STEP 1: Auth Sukses! Kunci API & Access Token Valid.")
+        username = res_me.json().get("data", {}).get("username")
+        actual_id = res_me.json().get("data", {}).get("id")
+        results.append(f"   Identitas: @{username} (ID: {actual_id})")
         
-        if res.status_code != 200: return f"API Error {res.status_code}"
+        # Cek apakah MY_USER_ID di Secret sudah benar
+        if keys["my_id"] != actual_id:
+            results.append(f"   ⚠️ WARNING: Secret MY_USER_ID ({keys['my_id']}) tidak cocok dengan ID asli ({actual_id})!")
+    
+    elif res_me.status_code == 401:
+        results.append("❌ STEP 1: Auth Gagal (401). Token salah atau perlu Regenerate.")
+    else:
+        results.append(f"❌ STEP 1: Error Lain ({res_me.status_code}): {res_me.text}")
 
-        data = res.json().get("data", [])
-        users = {u["id"]: u for u in res.json().get("includes", {}).get("users", [])}
-        random.shuffle(data)
+    # TEST 2: Izin Menulis (Permissions)
+    if res_me.status_code == 200:
+        print("Testing Step 2: Write Permissions...")
+        url_tweet = "https://api.twitter.com/2/tweets"
+        res_tweet = requests.post(url_tweet, auth=auth, json={"text": "Diagnostic Test Check ✅"})
+        
+        if res_tweet.status_code == 201:
+            results.append("✅ STEP 2: Write Sukses! Bot bisa posting tweet.")
+        elif res_tweet.status_code == 403:
+            results.append("❌ STEP 2: Permission Gagal (403). Ubah ke 'Read and Write' di Developer Portal.")
+        else:
+            results.append(f"❌ STEP 2: Gagal Posting ({res_tweet.status_code}): {res_tweet.text}")
 
-        for tw in data:
-            author = users.get(tw["author_id"])
-            if author and author["public_metrics"]["followers_count"] > 10000:
-                if "drop" in tw["text"].lower(): continue 
-                t_id = tw["id"]
-                requests.post(f"https://api.twitter.com/2/users/{X_KEYS['my_id']}/likes", auth=get_auth(), json={"tweet_id": t_id}, timeout=15)
-                requests.post(f"https://api.twitter.com/2/users/{X_KEYS['my_id']}/retweets", auth=get_auth(), json={"tweet_id": t_id}, timeout=15)
-                requests.post(f"https://api.twitter.com/2/users/{X_KEYS['my_id']}/following", auth=get_auth(), json={"target_user_id": author["id"]}, timeout=15)
-                return f"Joined GA: @{author['username']}"
-        return "No legit GA found in this cycle"
-    except Exception as e:
-        return f"Hunt Error: {str(e)}"
+    # Gabungkan hasil dan kirim
+    final_report = "\n".join(results)
+    print(final_report)
+    notify_ntfy(final_report)
 
 if __name__ == "__main__":
-    # Peluang 50% jalan (lebih sering agar robust)
-    if random.random() < 0.5:
-        selected_quote = "System Idle"
-        ga_msg = "No Action"
-        err_msg = "None"
-        
-        try:
-            eng_quotes = [
-                "Consistency is key.", "Success is a habit.", "Focus on the goal.", 
-                "Keep moving forward.", "Action creates opportunity.", "Stay humble, hustle hard.",
-                "Quality over quantity.", "The best is yet to come.", "Do it with passion.",
-                "Discipline equals freedom.", "Dream big, act fast.", "Stay focused and extra sparkly.",
-                "Hard work pays off.", "Work in silence, let success speak.", "Progress is progress.",
-                "Be better than yesterday.", "Mindset is everything.", "Make it happen.",
-                "Don't wish for it, work for it.", "Everything is possible."
-            ]
-            selected_quote = random.choice(eng_quotes)
-            st_res = requests.post("https://api.twitter.com/2/tweets", auth=get_auth(), json={"text": selected_quote}, timeout=15)
-            
-            if st_res.status_code != 201:
-                err_msg = f"Tweet Failed: {st_res.status_code}"
-            
-            time.sleep(random.randint(100, 300))
-            ga_msg = hunt_early_ga()
-            
-            notify(f"✅ Bot Status: {st_res.status_code}\nGA: {ga_msg}")
-        except Exception as e:
-            err_msg = str(e)
-            notify(f"⚠️ Bot encountered an error: {err_msg}. Will retry in 3 hours.")
-        
-        create_reports(selected_quote, ga_msg, err_msg)
-    else:
-        print("Scheduled skip for organic look.")
+    run_diagnostic()
 
 # ompapaznoob
