@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 from requests_oauthlib import OAuth1
 
+# Konfigurasi
 X_AUTH = OAuth1(
     os.environ.get("X_API_KEY"), os.environ.get("X_API_SECRET"),
     os.environ.get("X_ACCESS_TOKEN"), os.environ.get("X_ACCESS_SECRET")
@@ -16,69 +17,73 @@ def notify(msg):
     try: requests.post(NTFY_URL, data=msg.encode('utf-8'), timeout=15)
     except: pass
 
-def get_limit_info():
+def get_stats():
+    """Mengambil jumlah follower terbaru"""
     try:
-        res = requests.get(f"https://api.twitter.com/2/users/me", auth=X_AUTH, timeout=10)
-        return res.headers.get('x-rate-limit-remaining', "N/A")
-    except: return "Check Error"
+        url = f"https://api.twitter.com/2/users/{MY_ID}?user.fields=public_metrics"
+        res = requests.get(url, auth=X_AUTH, timeout=10)
+        if res.status_code == 200:
+            data = res.json().get("data", {})
+            return data.get("public_metrics", {}).get("followers_count", 0)
+    except: return "N/A"
+    return "N/A"
 
-def human_delay(low=10, high=30):
-    time.sleep(random.randint(low, high))
-
-def organic_growth():
-    summary = []
+def perform_actions():
+    """Melakukan aksi organik dan mencatat jumlahnya"""
+    acts = {"like": 0, "rt": 0, "tweet": 0}
+    
     try:
-        # 1. FOLLBACK (Maks 5 orang)
-        res_f = requests.get(f"https://api.twitter.com/2/users/{MY_ID}/followers", auth=X_AUTH)
-        if res_f.status_code == 200:
-            fol = res_f.json().get("data", [])[:5]
-            for f in fol:
-                requests.post(f"https://api.twitter.com/2/users/{MY_ID}/following", auth=X_AUTH, json={"target_user_id": f['id']})
-                human_delay(2, 5)
-            summary.append(f"Follback:{len(fol)}")
+        # Cari konten komunitas
+        q = random.choice(['#Web3', '#Crypto', '#AI'])
+        url = f"https://api.twitter.com/2/tweets/search/recent?query={q} -is:retweet&max_results=10"
+        res = requests.get(url, auth=X_AUTH)
+        
+        if res.status_code == 200:
+            tweets = res.json().get("data", [])
+            if tweets:
+                target = random.choice(tweets)
+                # Sesekali Like (Peluang 70%)
+                if random.random() < 0.7:
+                    requests.post(f"https://api.twitter.com/2/users/{MY_ID}/likes", auth=X_AUTH, json={"tweet_id": target['id']})
+                    acts["like"] += 1
+                # Sesekali RT (Peluang 40%)
+                if random.random() < 0.4:
+                    requests.post(f"https://api.twitter.com/2/users/{MY_ID}/retweets", auth=X_AUTH, json={"tweet_id": target['id']})
+                    acts["rt"] += 1
 
-        # 2. INTERAKSI KOMUNITAS (Cari akun 100% follow back)
-        queries = ['#Web3 "follow back"', '#Crypto "ifb"', 'AI "follback"']
-        q = random.choice(queries)
-        res_s = requests.get(f"https://api.twitter.com/2/tweets/search/recent?query={q} -is:retweet&expansions=author_id", auth=X_AUTH)
-        if res_s.status_code == 200:
-            t_data = res_s.json().get("data", [])
-            if t_data:
-                target = random.choice(t_data)
-                # Like & Follow
-                requests.post(f"https://api.twitter.com/2/users/{MY_ID}/likes", auth=X_AUTH, json={"tweet_id": target['id']})
-                requests.post(f"https://api.twitter.com/2/users/{MY_ID}/following", auth=X_AUTH, json={"target_user_id": target['author_id']})
-                summary.append(f"Hunter:Matched {q}")
-
-    except Exception as e:
-        summary.append(f"Err:{str(e)[:20]}")
-    return " | ".join(summary)
+        # Posting Tweet (Peluang 30% per sesi)
+        if random.random() < 0.3:
+            quotes = ["Consistent growth is the goal.", "Building connections in Web3.", "Step by step."]
+            tw_res = requests.post("https://api.twitter.com/2/tweets", auth=X_AUTH, json={"text": f"{random.choice(quotes)} {random.randint(1,99)}"})
+            if tw_res.status_code == 201:
+                acts["tweet"] += 1
+                
+    except: pass
+    return acts
 
 if __name__ == "__main__":
-    pre_l = get_limit_info()
+    # 1. Ambil data follower
+    followers = get_stats()
     
-    # Eksekusi aksi
-    act_log = organic_growth()
-    human_delay(20, 60)
+    # 2. Jalankan aksi harian
+    counts = perform_actions()
     
-    # Tweet hanya jika angka hoki (30% chance)
-    tw_status = "Skip"
-    if random.random() < 0.3:
-        thoughts = ["Quality over quantity. 💎", "Networking is the new net worth. #Web3", "Staying consistent. 📈"]
-        res_tw = requests.post("https://api.twitter.com/2/tweets", auth=X_AUTH, json={"text": f"{random.choice(thoughts)} {random.randint(1,99)}"})
-        tw_status = "Done" if res_tw.status_code == 201 else f"Fail:{res_tw.status_code}"
-
-    post_l = get_limit_info()
-    
+    # 3. Susun Laporan
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
     report = (
-        f"🛡️ SAFE-MODE REPORT @HeartLongbow\n"
-        f"📉 Limit: {pre_l} -> {post_l}\n"
-        f"🛠 Actions: {act_log}\n"
-        f"🐦 Tweet: {tw_status}"
+        f"📊 DAILY LOG @HeartLongbow\n"
+        f"👥 Follower: {followers}\n"
+        f"❤️ Like Hari Ini: {counts['like']}\n"
+        f"🔁 RT Hari Ini: {counts['rt']}\n"
+        f"✍️ Tweet Hari Ini: {counts['tweet']}\n"
+        f"⏰ Update: {now}"
     )
     
     print(report)
     notify(report)
-    with open("activity.txt", "w") as f: f.write(report)
+    
+    # Overwrite file aktivitas
+    with open("activity.txt", "w") as f:
+        f.write(report)
 
 # ompapaznoob
