@@ -1,29 +1,30 @@
-name: Robust Natural Bot
+name: HeartLongbow Semi-Daily Bot
 on:
   schedule:
-    # Berjalan setiap 6 jam (00:00, 06:00, 12:00, 18:00 UTC)
-    # Ini jauh lebih aman untuk menjaga limit 500 tweet/bulan
-    - cron: '0 */6 * * *'
-  workflow_dispatch: # Agar Anda tetap bisa menjalankan manual jika mau
+    # Berjalan jam 08:00 dan 20:00 WIB (01:00 dan 13:00 UTC)
+    - cron: '0 1,13 * * *'
+  workflow_dispatch: # Agar Anda tetap bisa menjalankan manual kapan saja
 
 jobs:
-  run-bot:
+  heartlongbow-job:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Wajib untuk overwrite activity.txt
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repo
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
           
       - name: Install Dependencies
         run: pip install requests requests_oauthlib
         
-      - name: Execute Script
+      - name: Run HeartLongbow Bot
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
@@ -31,19 +32,15 @@ jobs:
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
           MY_USER_ID: ${{ secrets.MY_USER_ID }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          # Pastikan Secret Wallet di bawah ini sudah Anda isi di GitHub
-          WALLET_EVM: ${{ secrets.WALLET_EVM }}
-          WALLET_SOL: ${{ secrets.WALLET_SOL }}
-          WALLET_SUI: ${{ secrets.WALLET_SUI }}
         run: python natural_bot.py
         
-      - name: Force Push Reports
+      - name: Overwrite and Push Logs
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          # Mengecek apakah file ada sebelum commit untuk menghindari error
+          # Mengecek jika file laporan ada sebelum dikirim ke repo
           if [ -f activity.txt ]; then
-            git add activity.txt status.txt
-            git commit -m "Overwrite logs [skip ci]" || echo "No changes"
+            git add activity.txt
+            git commit -m "Update semi-daily activity logs [skip ci]" || echo "No changes"
             git push origin main --force
           fi
